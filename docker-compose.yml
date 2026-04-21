@@ -1,0 +1,128 @@
+version: "3.9"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Dynamic Labyrinth — Ingestion stack (Alaa)
+#
+# Services:
+#   redis           local Redis (skip if using cloud Redis — set REDIS_URL)
+#   http-ingest     FastAPI webhook receiver  (port 8001)
+#   file-ingest     JSONL file tail worker    (no port, reads a bind-mounted log)
+#
+# Quick start:
+#   cp .env.example .env && docker compose up -d
+# ──────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Redis (local dev only) ─────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: labyrinth-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - labyrinth-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles: ["local"]   # only started when --profile local is passed
+
+  # ── HTTP ingestion server ──────────────────────────────────────────────────
+  http-ingest:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: labyrinth-ingestion:latest
+    container_name: labyrinth-http-ingest
+    restart: unless-stopped
+    ports:
+      - "${HTTP_INGEST_PORT:-8001}:8001"
+    environment:
+      # Redis
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      INGEST_QUEUE_KEY: ${INGEST_QUEUE_KEY:-cerebrum:events}
+      # Auth
+      HMAC_SECRET: ${HMAC_SECRET:-CHANGE_ME_in_production}
+      REQUIRE_HMAC: ${REQUIRE_HMAC:-true}
+      # Misc
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PORT: "8001"
+    networks:
+      - labyrinth-net
+    depends_on:
+      redis:
+        condition: service_healthy
+        required: false   # skipped when redis profile not active
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  # ── File-tail ingestion worker ─────────────────────────────────────────────
+  file-ingest:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: labyrinth-ingestion:latest
+    container_name: labyrinth-file-ingest
+    restart: unless-stopped
+    command:
+      - python
+      - file_tail_ingest.py
+      - --file
+      - /var/log/honeytrap/events.jsonl
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      INGEST_QUEUE_KEY: ${INGEST_QUEUE_KEY:-cerebrum:events}
+      POLL_INTERVAL: ${POLL_INTERVAL:-0.5}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - ${HONEYTRAP_LOG_PATH:-/tmp/honeytrap_events.jsonl}:/var/log/honeytrap/events.jsonl:ro
+    networks:
+      - labyrinth-net
+    depends_on:
+      redis:
+        condition: service_healthy
+        required: false
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  # ── RedisInsight (optional monitoring UI) ─────────────────────────────────
+  redis-insight:
+    image: redis/redisinsight:latest
+    container_name: labyrinth-redis-insight
+    restart: unless-stopped
+    ports:
+      - "5540:5540"
+    volumes:
+      - redis-insight-data:/db
+    networks:
+      - labyrinth-net
+    profiles: ["monitoring"]
+
+volumes:
+  redis-data:
+  redis-insight-data:
+
+networks:
+  labyrinth-net:
+    name: labyrinth-net
+    driver: bridge
+    # Attach external services (Cerebrum, Orchestrator) to this same network
+    # or set their URLs via environment variables above.

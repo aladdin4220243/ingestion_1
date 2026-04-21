@@ -1,0 +1,35 @@
+# ── Web framework ──────────────────────────────────────────────────────────────
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
+# ── Data validation ────────────────────────────────────────────────────────────
+pydantic==2.5.0
+pydantic-settings==2.1.0
+email-validator==2.1.0
+
+# ── Queue / Redis ───────────────────────────────────────────────────────────────
+redis==5.0.1
+
+# ── HTTP client (Cerebrum forwarding) ─────────────────────────────────────────
+httpx==0.25.1
+aiohttp==3.9.1
+
+# ── Security ───────────────────────────────────────────────────────────────────
+cryptography==41.0.7
+
+# ── Monitoring ────────────────────────────────────────────────────────────────
+prometheus-client==0.19.0
+
+# ── Async helpers ─────────────────────────────────────────────────────────────
+aiofiles==23.2.1
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+httpx==0.25.1          # also used in tests for TestClient
+
+# ── Optional adapters (uncomment when needed) ─────────────────────────────────
+# aiokafka==0.8.0
+# elasticsearch[async]==8.11.0
